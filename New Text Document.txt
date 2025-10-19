@@ -1,0 +1,3 @@
+echo RAZORPAY_KEY_ID=rzp_test_RQCwQFoZW67rW3> .env
+echo RAZORPAY_KEY_SECRET=Jkau3gP5hshha6IkA4h45SnQ>> .env
+echo PORT=3000>> .env
