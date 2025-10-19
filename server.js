@@ -168,6 +168,12 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+// Diagnose SMTP on boot
+transporter.verify()
+  .then(() => console.log(`SMTP ready on ${process.env.SMTP_HOST}:${smtpPort} (secure=${useSecure})`))
+  .catch(err => console.error('SMTP verify failed:', err.message));
+
+
 async function sendInvoiceEmailBuffer({ to, subject, html, filename, buffer }) {
   return transporter.sendMail({
     from: process.env.FROM_EMAIL || process.env.SMTP_USER,
@@ -323,10 +329,27 @@ app.post("/verify", async (req, res) => {
     res.status(500).json({ ok: false, error: "Verification error" });
   }
 });
-
 // Health route
 app.get("/", (_req, res) => {
   res.send("✅ Razorpay backend is running. Use POST /create-order and POST /verify.");
+});
+
+// ✅ Email test route
+app.get('/email-test', async (req, res) => {
+  try {
+    const to = (req.query.to || process.env.STORE_EMAIL || process.env.SMTP_USER).toString();
+    await transporter.sendMail({
+      from: process.env.FROM_EMAIL || process.env.SMTP_USER,
+      to,
+      subject: 'SMTP test from CHUNARI backend',
+      text: 'If you see this, SMTP is working. 🎉',
+    });
+    console.log('Test email sent to:', to);
+    res.send(`✅ Test email sent to ${to}`);
+  } catch (e) {
+    console.error('Test email failed:', e.message);
+    res.status(500).send(`❌ Test email failed: ${e.message}`);
+  }
 });
 
 // Start server
