@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "chunari-12",
+  "private_key_id": "94e8624a7ec358bddb64c903ef71aa854d02299c",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCekNPYD3eDTy6Y\nG4QQJeDmNF5TArNxkslY/kADkCjlHiNzKHXahLFP2pw9uExLRdbfbdMhYzBznumU\nIQ9eP5IQPa6Y9f5qvbRAzvmB9k7xOxdPNwX/pi0GoBY55VBHc8+Z3ZoOXIpunrz2\n2gn26ZdzfnnXKr5vUthOfu6BG2p4836oLBHxwOJlbfhyVyGc0FjFA07vDxsUPPj7\nl04ciW+29YKWm3K4yJr1tSlurDe3Nvb9AaYeMuJWVmoSBZPnMLaJjhGJBs1/33U1\nZQudStH6+Ns/nQ7UTZSgim9mTX4ygjV51YQT52avBOJhaZ0sgTR/T0/RRgVJ3Y3L\nTNniZBC/AgMBAAECggEATjLtjsn97j+gInq7c/1CPzWHaRfVaEb0TpPA/SDc0jW9\nVN8Y1CYJjfCpihS4Z4zvTawLahVRQUwXNKrjOd9PCPxqfVwf1wNsgGOykCHpR7WV\nJsdjiXMqFHDh1Taek0ZtlRvBDKEd0jUtyu236VHFE7vFmdQmK5+nNnsJ45kiNrhT\nqHP4qcE/dKk/xGMijhCFpkDvv2+MsgZdotslyNtLFWftCWFAY0Uvz/rDlcumKCgn\nQ4rL7LMS8VL0J2qq1Jz7BNNXUpmk/7sEpmFnV4ZOYPXKUYs7k5QQX2bxyw8W0xip\nAw7udCXcnTKcOciJreTEX4mRPfyd6oREA9cQ7E89eQKBgQDZioJzLRwbEL+7qDN+\ntKDeTRsX1Go/SvVjsYkmcaDUeapCeS58FiBZ4xZOzrPIvJfxbEGnRp4BpPsOB44E\nXRDMwDZGjCDIe0zacVn5zqQxjluDfuuQymoarJZvA8uGCR1m8t91TbKNPOJYroru\nLGf/1qxx9/tSqrKAK/0eXZ0vqQKBgQC6mTVJ1Dx4PFa5/JEh1IWUDc4ZzXVqqaPY\nhq2HkzORbpujRXlmlP1ST426n/n8gMp4oKBhYRWacff0jvEP0w9HXeVt3XMjLkZd\ndu5fB8YJbjGGQJeJDMM+XK+FlSxWAyITAfAb9B/AKJwJoFRWZ37MTS9DIEIVtE2U\nQ9K37nweJwKBgCgpNQoUYuLwRaVcWR1kNWq063KLyY2jxgfAp+RMB/gR+gfJnXZV\nE2Xk0aJ88J33i0mLxdce517AWYTuih5uHALg3WRKzGaWtMqDMKw4pQFtGaH+FXkm\nlU4VXLRkC/fTyPTPk8dxL6x5eAQNPSLZWd3WgQGNWX2ae9fDxzgK6lD5AoGASbhl\n2TlEeqw8B1bFb/wqmgeqOX92uCE1XkI3JKz/XqG4U5ULFYAfZPmRIP47IYswct/i\n/RYCFvaX48Llcj8MdkGedv1ak7egjSSDoH/NucQTRNsYA0lLicPMhJYe4gxy1dea\nKTEVqjFhFFyHdWuGKOkFlxuTgEevrrfs9EYAO1kCgYEAkSvQWh4UEzrklbWNQ3U0\nnPRqAGdLOhb8qnSoxYTURrGxNrtlUlQLOiKajoCCO9+aIo52H4k7Eml2TzXvJLhh\nHQmKaAOZIO/8/7zJJ1J8iKJCHOc02WqLU0R2MeG5Z4R+4gOg0Z1dK5YnK+9Zx/PR\nQKpWXw1Oa2+OvUMANAQETus=\n-----END PRIVATE KEY-----\n",
+  "client_email": "chunari-invoice-uploader@chunari-12.iam.gserviceaccount.com",
+  "client_id": "107863510656170050562",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/chunari-invoice-uploader%40chunari-12.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
