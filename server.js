@@ -16,8 +16,21 @@ const dayjs = require("dayjs");
 // --- Google Drive (service account) ---
 const { google } = require("googleapis");
 
-// ✅ Use environment variable instead of local JSON file
-const GOOGLE_KEY = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+// Read credentials from env (JSON or base64)
+let rawCreds = process.env.GOOGLE_CREDENTIALS;
+if (!rawCreds && process.env.GOOGLE_CREDENTIALS_B64) {
+  rawCreds = Buffer.from(process.env.GOOGLE_CREDENTIALS_B64, "base64").toString("utf8");
+}
+if (!rawCreds) {
+  throw new Error("Missing GOOGLE_CREDENTIALS (JSON) or GOOGLE_CREDENTIALS_B64 (base64) env variable.");
+}
+
+let GOOGLE_KEY;
+try {
+  GOOGLE_KEY = JSON.parse(rawCreds);
+} catch (e) {
+  throw new Error("GOOGLE_CREDENTIALS is not valid JSON (or decoded base64).");
+}
 
 const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
 const auth = new google.auth.GoogleAuth({
@@ -98,7 +111,7 @@ function makeInvoicePDFFile({ orderId, paymentId, amountPaise, customer, cart = 
       .fontSize(10)
       .text(`Date: ${dayjs().format("DD MMM YYYY, HH:mm")}`, { align: "right" })
       .text(`Order ID: ${orderId}`, { align: "right" })
-      .text(`Payment ID: ${paymentId}`, { align: "right" })
+      .text(`Payment ID: ${paymentId || "-"}`, { align: "right" })
       .moveDown();
 
     // Bill to
@@ -144,7 +157,7 @@ function makeInvoicePDFFile({ orderId, paymentId, amountPaise, customer, cart = 
     doc.moveDown(0.5);
     doc.text(`Subtotal: ₹${sub.toFixed(2)}`, { align: "right" });
     doc.text(`Tax (GST not registered): ₹0.00`, { align: "right" });
-    doc.text(`Total Paid: ${moneyFromPaise(amountPaise)}`, { align: "right" });
+    doc.text(`Total Paid: ${amountPaise ? moneyFromPaise(amountPaise) : "Paid"}`, { align: "right" });
 
     doc.moveDown(1);
     doc.fontSize(9).text("Note: GST not registered. This is a computer-generated invoice.");
@@ -158,6 +171,9 @@ function makeInvoicePDFFile({ orderId, paymentId, amountPaise, customer, cart = 
 // Upload a local file to Google Drive
 async function uploadToDrive(filePath, fileName) {
   const fileMetadata = { name: fileName };
+  if (process.env.GOOGLE_DRIVE_FOLDER_ID) {
+    fileMetadata.parents = [process.env.GOOGLE_DRIVE_FOLDER_ID];
+  }
   const media = { mimeType: "application/pdf", body: fs.createReadStream(filePath) };
 
   const res = await drive.files.create({
@@ -190,12 +206,23 @@ app.post("/create-order", async (req, res) => {
     const customer = req.body.customer || {};
     const cart = Array.isArray(req.body.cart) ? req.body.cart : [];
 
+    const notes = {
+      customer_name: (customer.name || "NA").toString().slice(0, 100),
+      customer_phone: (customer.phone || "NA").toString().slice(0, 20),
+      customer_email: (customer.email || "NA").toString().slice(0, 100),
+      address_line1: (customer.address1 || "NA").toString().slice(0, 120),
+      address_line2: (customer.address2 || "").toString().slice(0, 120),
+      city: (customer.city || "").toString().slice(0, 60),
+      state: (customer.state || "").toString().slice(0, 60),
+      pincode: (customer.pincode || "").toString().slice(0, 20),
+    };
+
     const order = await razorpay.orders.create({
       amount,
       currency: "INR",
       receipt: "receipt_" + Date.now(),
       payment_capture: 1,
-      notes: customer,
+      notes,
     });
 
     appendOrderRecord({
@@ -218,6 +245,11 @@ app.post("/create-order", async (req, res) => {
 app.post("/verify", async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, customer, cart } = req.body;
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ ok: false, error: "Missing fields" });
+    }
+
     const expected = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(razorpay_order_id + "|" + razorpay_payment_id)
@@ -227,26 +259,48 @@ app.post("/verify", async (req, res) => {
 
     console.log("✅ Payment verified:", razorpay_order_id);
 
+    // Persist verified payments (simple log)
+    try {
+      fs.appendFileSync(
+        VERIFIED_FILE,
+        JSON.stringify({
+          razorpay_order_id,
+          razorpay_payment_id,
+          verified_at: new Date().toISOString(),
+        }) + "\n"
+      );
+    } catch (_) {}
+
     const orderData = orderIndex.get(razorpay_order_id) || {
       orderId: razorpay_order_id,
       amountPaise: undefined,
       currency: "INR",
-      customer,
-      cart,
+      customer: customer || {},
+      cart: Array.isArray(cart) ? cart : [],
     };
 
-    const pdfPath = await makeInvoicePDFFile(orderData);
+    const pdfPath = await makeInvoicePDFFile({
+      orderId: orderData.orderId,
+      paymentId: razorpay_payment_id,
+      amountPaise: orderData.amountPaise,
+      customer: orderData.customer,
+      cart: orderData.cart,
+    });
+
     const uploaded = await uploadToDrive(pdfPath, `invoice-${orderData.orderId}.pdf`);
     try { fs.unlinkSync(pdfPath); } catch (_) {}
 
-    return res.json({ ok: true, driveViewLink: uploaded.webViewLink });
+    return res.json({ ok: true, driveFileId: uploaded.id, driveViewLink: uploaded.webViewLink });
   } catch (err) {
     console.error("❌ Verify error:", err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-app.get("/", (_req, res) => res.send("✅ Razorpay backend is running. Use /create-order and /verify."));
+// Health
+app.get("/", (_req, res) =>
+  res.send("✅ Razorpay backend is running. Use POST /create-order and POST /verify.")
+);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
