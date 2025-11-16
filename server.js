@@ -41,7 +41,7 @@ function makeInvoicePDFFile({ orderId, paymentId, amountPaise, customer = {}, ca
     const storePhone = safeEnv("STORE_PHONE", "");
     const storeAddress = safeEnv("STORE_ADDRESS", "");
 
-    // Header
+    // Header (left)
     doc
       .fontSize(20)
       .text(storeName, { align: "left" })
@@ -52,11 +52,15 @@ function makeInvoicePDFFile({ orderId, paymentId, amountPaise, customer = {}, ca
       .text(`Email: ${storeEmail}`)
       .moveDown();
 
+    // Right side: INVOICE + date (IST), Order ID, Payment ID
     doc
       .fontSize(16)
       .text("INVOICE", { align: "right" })
       .fontSize(10)
-      .text(`Date: ${new Date().toLocaleString()}`, { align: "right" })
+      .text(
+        `Date: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`,
+        { align: "right" }
+      )
       .text(`Order ID: ${orderId}`, { align: "right" })
       .text(`Payment ID: ${paymentId || "-"}`, { align: "right" })
       .moveDown();
@@ -74,7 +78,7 @@ function makeInvoicePDFFile({ orderId, paymentId, amountPaise, customer = {}, ca
       .text(`Email: ${customer.email || ""}`)
       .moveDown();
 
-    // Items
+    // Items table header
     doc.fontSize(11).text("Items:", { underline: true }).moveDown(0.4);
     doc.fontSize(10);
     const colX = [40, 300, 380];
@@ -278,7 +282,6 @@ app.post("/verify", async (req, res) => {
       console.error("Email setup error (non-fatal):", mailErr);
     }
 
-    // We can attempt to clean the local file after a short delay, or leave cleanup to another process.
     // Try immediate cleanup (if delete fails, ignore)
     try {
       if (pdfPath) await fsPromises.unlink(pdfPath);
