@@ -1,5 +1,7 @@
 // server.js - simplified: Razorpay + Invoice PDF + GitHub commit + SMTP email
 require("dotenv").config();
+const { uploadFileToGitHub } = require("./utils/githubUploader");
+
 
 const crypto = require("crypto");
 const fs = require("fs");
