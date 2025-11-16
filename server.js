@@ -165,116 +165,84 @@ app.post('/create-order', async (req, res) => {
 });
 
 // Verify payment, generate invoice, commit to GitHub, and email customer
-app.post('/verify', async (req, res) => {
+app.post("/verify", async (req, res) => {
   try {
     const {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
-      amountPaise, // optional
-      customer,    // optional
-      cart,        // optional
+      amountPaise,
+      customer,
+      cart
     } = req.body;
 
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-      return res.status(400).json({ ok: false, error: 'Missing required fields' });
+      return res.status(400).json({ ok: false, error: "Missing required fields" });
     }
 
-    // HMAC verification
+    // Verify Razorpay signature
     const expected = crypto
-      .createHmac('sha256', safeEnv('RAZORPAY_KEY_SECRET') || '')
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest('hex');
+      .digest("hex");
 
     if (expected !== razorpay_signature) {
-      return res.status(400).json({ ok: false, error: 'Invalid signature' });
+      return res.status(400).json({ ok: false, error: "Invalid signature" });
     }
 
-    console.log('✅ Payment verified:', razorpay_order_id);
+    console.log("✅ Payment verified:", razorpay_order_id);
 
-    // Generate PDF invoice
+    // Create PDF invoice locally
     const pdfPath = await makeInvoicePDFFile({
       orderId: razorpay_order_id,
       paymentId: razorpay_payment_id,
-      amountPaise: typeof amountPaise === 'number' ? amountPaise : undefined,
-      customer: customer || {},
-      cart: Array.isArray(cart) ? cart : [],
+      amountPaise,
+      customer,
+      cart
     });
 
-    // Commit file to GitHub
-    let githubResult = null;
-    try {
-      const owner = safeEnv('GITHUB_OWNER', 'chunariofficial12-boop');
-      const repo = safeEnv('GITHUB_REPO', 'chunari-backend');
-      const branch = safeEnv('GITHUB_BRANCH', 'main');
-      const repoPath = `invoices/${path.basename(pdfPath)}`; // invoices/invoice-order_xxx.pdf
+    // Upload PDF to GitHub
+    const githubResponse = await uploadFileToGitHub({
+      owner: process.env.GITHUB_OWNER,
+      repo: process.env.GITHUB_REPO,
+      branch: process.env.GITHUB_BRANCH || "main",
+      path: `invoices/invoice_${razorpay_order_id}.pdf`,
+      localFilePath: pdfPath,
+      token: process.env.GITHUB_TOKEN,
+      commitMessage: `Invoice for order ${razorpay_order_id}`
+    });
 
-      githubResult = await uploadFileToGitHub({
-        owner,
-        repo,
-        branch,
-        path: repoPath,
-        localFilePath: pdfPath,
-        token: safeEnv('GITHUB_TOKEN'),
-        commitMessage: `Add invoice for ${razorpay_order_id}`,
-      });
-
-      console.log('GitHub upload OK:', (githubResult && githubResult.commit && githubResult.commit.sha) || 'unknown-sha');
-    } catch (ghErr) {
-      console.error('GitHub upload error:', ghErr);
-      // continue to try mailing anyway
-    }
-
-    // Email invoice to customer (if SMTP configured and customer email present)
-    let mailInfo = null;
-    try {
-      const transporter = makeTransporter();
-      const toEmail = (customer && customer.email) ? customer.email : null;
-      if (transporter && toEmail) {
-        const from = safeEnv('FROM_EMAIL') || safeEnv('SMTP_USER');
-        const subject = safeEnv('INVOICE_EMAIL_SUBJECT') || 'Your Chunari Order Invoice (Thank you for shopping!)';
-        const textBody = `Hello ${customer && customer.name ? customer.name : ''},\n\nThank you for your order. Please find attached your invoice (Order: ${razorpay_order_id}).\n\nRegards,\n${safeEnv('STORE_NAME','CHUNARI')}`;
-
-        const mailOpts = {
-          from,
-          to: toEmail,
-          subject,
-          text: textBody,
-          attachments: [
-            { filename: path.basename(pdfPath), path: pdfPath, contentType: 'application/pdf' }
-          ],
-        };
-
-        mailInfo = await transporter.sendMail(mailOpts);
-        console.log('Email sent:', mailInfo && (mailInfo.messageId || mailInfo.response));
-      } else {
-        console.log('SMTP transporter missing or customer email not present - skipping email.');
+    // Send Email with invoice attachment
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.FROM_EMAIL,
+        pass: process.env.SMTP_PASS
       }
-    } catch (mailErr) {
-      console.error('Email send error:', mailErr);
-    }
+    });
 
-    // Cleanup: remove local PDF file
-    try { await fsPromises.unlink(pdfPath); } catch (e) { /* ignore */ }
+    await transporter.sendMail({
+      from: process.env.FROM_EMAIL,
+      to: customer.email,
+      bcc: process.env.BCC_EMAIL,
+      subject: `Your CHUNARI Order Invoice - ${razorpay_order_id}`,
+      text: `Thank you for your order!\nYour invoice is attached.\n\nOrder ID: ${razorpay_order_id}`,
+      attachments: [
+        {
+          filename: `invoice_${razorpay_order_id}.pdf`,
+          path: pdfPath
+        }
+      ]
+    });
 
-    // Build response
-    const response = {
+    return res.json({
       ok: true,
-      order: razorpay_order_id,
-      payment: razorpay_payment_id,
-      github: githubResult ? { commitSha: githubResult.commit && githubResult.commit.sha } : null,
-      emailSent: !!mailInfo,
-    };
-
-    return res.json(response);
+      message: "Invoice generated, uploaded, and emailed.",
+      github: githubResponse
+    });
   } catch (err) {
-    console.error('verify error:', err);
-    res.status(500).json({ ok: false, error: err.message || String(err) });
+    console.error("verify error:", err);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// Health
-app.get('/', (_req, res) => res.send('✅ Backend running. Use POST /create-order and POST /verify.'));
-
-const PORT = Number(safeEnv('PORT', 3000));
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
