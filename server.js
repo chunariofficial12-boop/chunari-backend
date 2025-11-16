@@ -156,6 +156,9 @@ function makeTransporter() {
 // ---------- App ----------
 const app = express();
 app.use(cors());
+
+// Important: route-specific raw body parser for webhook must be registered
+app.use("/razorpay-webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 
 const razorpay = new Razorpay({
@@ -303,6 +306,58 @@ app.post("/verify", async (req, res) => {
       if (pdfPath) await fsPromises.unlink(pdfPath);
     } catch (e) {}
     return res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
+});
+
+// Razorpay webhook endpoint
+// Razorpay POSTS raw JSON and sets header X-Razorpay-Signature
+app.post("/razorpay-webhook", (req, res) => {
+  try {
+    const rawBody = req.body; // raw Buffer (because route uses express.raw)
+    const bodyStr = rawBody && rawBody.toString ? rawBody.toString("utf8") : "";
+
+    const webhookSecret = safeEnv("RAZORPAY_WEBHOOK_SECRET");
+    const signature = (req.headers["x-razorpay-signature"] || "").toString();
+
+    if (webhookSecret) {
+      const expected = crypto.createHmac("sha256", webhookSecret).update(bodyStr).digest("hex");
+      if (!signature || expected !== signature) {
+        console.warn("Webhook signature mismatch - rejecting");
+        return res.status(400).send("Invalid signature");
+      }
+    } else {
+      console.warn("No RAZORPAY_WEBHOOK_SECRET set in env — webhook signature verification skipped");
+    }
+
+    // parse event
+    let event;
+    try {
+      event = JSON.parse(bodyStr);
+    } catch (err) {
+      console.warn("Webhook: failed to parse JSON body", err && err.message);
+      return res.status(400).send("Invalid JSON");
+    }
+
+    console.log("📩 Razorpay webhook received:", event && event.event);
+
+    // Handle a few important events (customize as needed)
+    const evName = event && event.event;
+    if (evName === "payment.captured") {
+      const payment = event.payload && event.payload.payment && event.payload.payment.entity;
+      console.log("✅ payment.captured:", payment && payment.id, "amount:", payment && payment.amount);
+      // Optionally: trigger invoice generation / notify admin here
+    } else if (evName === "payment.failed") {
+      const payment = event.payload && event.payload.payment && event.payload.payment.entity;
+      console.log("❌ payment.failed:", payment && payment.id, "error:", event.payload && event.payload.payment && event.payload.payment.error_code);
+    } else if (evName === "order.paid") {
+      console.log("order.paid event:", event.payload);
+    } // add more events if you want
+
+    // respond quickly
+    return res.status(200).send("OK");
+  } catch (err) {
+    console.error("Webhook handler error:", err);
+    return res.status(500).send("Server error");
   }
 });
 
