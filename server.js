@@ -1,4 +1,4 @@
-// server.js - Razorpay + Invoice PDF + GitHub commit + SMTP email
+// server.js - Razorpay + Invoice PDF + GitHub commit + SMTP email (non-blocking email)
 require("dotenv").config();
 
 const crypto = require("crypto");
@@ -12,7 +12,7 @@ const cors = require("cors");
 const PDFDocument = require("pdfkit");
 const nodemailer = require("nodemailer");
 
-// GitHub uploader module (you created utils/githubUploader.js)
+// GitHub uploader module (utils/githubUploader.js)
 const { uploadFileToGitHub } = require("./utils/githubUploader");
 
 // ---------- Helpers ----------
@@ -22,7 +22,8 @@ if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 const moneyFromPaise = (paise) => `₹${(Number(paise || 0) / 100).toFixed(2)}`;
 
 function safeEnv(name, fallback = undefined) {
-  return process.env[name] || fallback;
+  const v = process.env[name];
+  return typeof v === "string" && v.length ? v : fallback;
 }
 
 // Create invoice PDF on disk and return file path
@@ -120,7 +121,7 @@ function makeInvoicePDFFile({ orderId, paymentId, amountPaise, customer = {}, ca
   });
 }
 
-// Setup nodemailer transporter (from env)
+// Setup nodemailer transporter (from env). Supports Gmail app-passwords.
 function makeTransporter() {
   const host = safeEnv("SMTP_HOST");
   const port = Number(safeEnv("SMTP_PORT", 587));
@@ -131,11 +132,20 @@ function makeTransporter() {
     return null;
   }
 
+  // For Gmail with app password use: host=smtp.gmail.com, port=587, secure=false and auth user=email / pass=app-password
   return nodemailer.createTransport({
     host,
     port,
-    secure: port === 465,
+    secure: port === 465, // true for 465, false for 587
     auth: { user, pass },
+    // Useful timeouts and TLS relax for some hosts (only if needed)
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
+    tls: {
+      // allow self-signed certs if your SMTP provider requires it; set to false for Gmail/standard providers
+      rejectUnauthorized: safeEnv("SMTP_REJECT_UNAUTHORIZED", "true") === "true",
+    },
   });
 }
 
@@ -229,11 +239,9 @@ app.post("/verify", async (req, res) => {
       }
     } catch (ghErr) {
       console.error("GitHub upload error (non-fatal):", ghErr);
-      // keep going
     }
 
-    // Email invoice (best-effort)
-    let mailInfo = null;
+    // Prepare email (send in background - non-blocking)
     try {
       const transporter = makeTransporter();
       const toEmail = customer && customer.email ? customer.email : null;
@@ -244,43 +252,54 @@ app.post("/verify", async (req, res) => {
       } else {
         const from = safeEnv("FROM_EMAIL") || safeEnv("SMTP_USER");
         const subject = safeEnv("INVOICE_EMAIL_SUBJECT") || `Your CHUNARI Invoice - ${razorpay_order_id}`;
-        const textBody = `Hello ${customer && customer.name ? customer.name : ""},\n\nThank you for your order. Please find attached your invoice (Order: ${razorpay_order_id}).\n\nRegards,\n${safeEnv("STORE_NAME", "CHUNARI")}`;
+        const textBody = `Hello ${customer && customer.name ? customer.name : ""},\n\nThank you for your order. Please find attached your invoice (Order: ${razorpay_order_id}).\n\nRegards,\n${safeEnv(
+          "STORE_NAME",
+          "CHUNARI"
+        )}`;
 
-        mailInfo = await transporter.sendMail({
-          from,
-          to: toEmail,
-          bcc: safeEnv("BCC_EMAIL"),
-          subject,
-          text: textBody,
-          attachments: [{ filename: path.basename(pdfPath), path: pdfPath }],
-        });
-        console.log("Email sent:", mailInfo && (mailInfo.messageId || mailInfo.response));
+        // send in background - do NOT await here
+        transporter
+          .sendMail({
+            from,
+            to: toEmail,
+            bcc: safeEnv("BCC_EMAIL") || undefined,
+            subject,
+            text: textBody,
+            attachments: [{ filename: path.basename(pdfPath), path: pdfPath }],
+          })
+          .then((info) => {
+            console.log("Email sent (background):", info && (info.messageId || info.response));
+          })
+          .catch((err) => {
+            console.warn("Email error (background, non-fatal):", err && (err.message || err));
+          });
       }
     } catch (mailErr) {
-      console.error("Email send error (non-fatal):", mailErr);
+      console.error("Email setup error (non-fatal):", mailErr);
     }
 
-    // Cleanup local file
+    // We can attempt to clean the local file after a short delay, or leave cleanup to another process.
+    // Try immediate cleanup (if delete fails, ignore)
     try {
       if (pdfPath) await fsPromises.unlink(pdfPath);
     } catch (e) {
-      // ignore cleanup errors
+      // ignore
     }
 
+    // Return success to caller (do NOT wait for email)
     return res.json({
       ok: true,
       order: razorpay_order_id,
       payment: razorpay_payment_id,
       github: githubResult ? { commitSha: githubResult.commit && githubResult.commit.sha } : null,
-      emailSent: !!mailInfo,
+      emailQueued: true,
     });
   } catch (err) {
     console.error("verify error:", err);
-    // try to cleanup file on error
     try {
       if (pdfPath) await fsPromises.unlink(pdfPath);
     } catch (e) {}
-    res.status(500).json({ ok: false, error: err.message || String(err) });
+    return res.status(500).json({ ok: false, error: err.message || String(err) });
   }
 });
 
